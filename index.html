@@ -1,55 +1,54 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>CHESS ULTRA MAX</title>
+    <title>CHESS MAX: AI + DETECTOR</title>
     <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
     <style>
-        :root { --bg: #0f0f0f; --gold: #f1c40f; --blue: #3498db; --card: #1c1c1c; }
-        body { background: var(--bg); color: white; font-family: 'Courier New', monospace; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
+        :root { --bg: #121212; --panel: #1e1e1e; --white-gold: #f1c40f; --alert: #e74c3c; }
+        body { background: var(--bg); color: white; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; padding: 10px; }
         
-        .layout { display: flex; gap: 20px; }
-        #board { width: 500px; border: 10px solid #2c3e50; border-radius: 8px; }
+        .container { display: flex; gap: 20px; align-items: flex-start; margin-top: 10px; }
+        #board { width: 450px; border: 4px solid #333; border-radius: 5px; box-shadow: 0 0 40px rgba(0,0,0,0.8); }
         
-        .side-bar { width: 320px; display: flex; flex-direction: column; gap: 10px; }
-        .panel { background: var(--card); padding: 15px; border-radius: 8px; border: 1px solid #333; }
+        .side-panel { width: 300px; background: var(--panel); padding: 20px; border-radius: 8px; border: 1px solid #444; }
         
-        .status-header { font-size: 1.5rem; text-align: center; color: var(--gold); text-shadow: 0 0 10px rgba(241, 196, 15, 0.5); margin-bottom: 10px; }
+        /* The Status Message Box */
+        .status-box { padding: 15px; border-radius: 5px; text-align: center; font-weight: bold; margin-bottom: 15px; font-size: 1.2rem; }
+        .active-turn { background: #27ae60; color: white; }
+        .game-over { background: var(--alert); color: white; animation: shake 0.5s; }
+
+        #history { height: 180px; overflow-y: auto; background: #000; padding: 10px; border-radius: 4px; font-family: monospace; color: #aaa; margin-bottom: 15px; border: 1px solid #333; }
         
-        #history { height: 150px; overflow-y: auto; background: #000; padding: 10px; font-size: 0.8rem; color: #0f0; border: 1px solid #0f0; }
-        
-        .grid-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-        button { padding: 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.3s; text-transform: uppercase; }
-        
-        .btn-auto { background: #8e44ad; color: white; grid-column: span 2; }
-        .btn-reset { background: #c0392b; color: white; }
-        .btn-undo { background: #2980b9; color: white; }
-        
-        button:hover { transform: scale(1.05); filter: brightness(1.2); }
-        .active-auto { animation: pulse 1s infinite; background: #27ae60 !important; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        button { width: 100%; padding: 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-bottom: 8px; transition: 0.2s; }
+        .undo-btn { background: #3498db; color: white; }
+        .reset-btn { background: #555; color: white; }
+        button:hover { filter: brightness(1.2); }
+
+        @keyframes shake {
+            0% { transform: translateX(0); }
+            25% { transform: translateX(5px); }
+            50% { transform: translateX(-5px); }
+            100% { transform: translateX(0); }
+        }
     </style>
 </head>
 <body>
 
-    <div class="layout">
+    <h2 style="letter-spacing: 2px;">CHESS <span style="color:var(--white-gold)">MAX</span> ENGINE</h2>
+
+    <div class="container">
         <div id="board"></div>
 
-        <div class="side-bar">
-            <div class="panel">
-                <div class="status-header" id="status">BATTLE READY</div>
-                <div id="history">--- ENGINE INITIALIZED ---</div>
-            </div>
-
-            <div class="panel grid-btns">
-                <button class="btn-auto" id="autoPlayBtn">START AUTO-CHESS</button>
-                <button class="btn-undo" id="undoBtn">Undo</button>
-                <button class="btn-reset" id="resetBtn">Reset</button>
-                <button style="background:#555; color:white;" id="themeBtn">Switch Theme</button>
-            </div>
+        <div class="side-panel">
+            <div id="status" class="status-box active-turn">YOUR TURN</div>
             
-            <div class="panel" style="font-size: 0.7rem; color: #888;">
-                ENGINE: Random-Logic V2.0<br>
-                SPEED: 500ms / move
+            <div id="history">Moves will appear here...</div>
+
+            <button class="undo-btn" onclick="undo()">Undo</button>
+            <button class="reset-btn" onclick="reset()">New Game</button>
+            
+            <div style="font-size: 0.75rem; color: #777; margin-top: 10px;">
+                <b>Detection Active:</b> Checkmate, Stalemate, Draw, 3-Fold Repetition.
             </div>
         </div>
     </div>
@@ -61,68 +60,95 @@
     <script>
         var board = null;
         var game = new Chess();
-        var autoInterval = null;
-        var themes = ['wikipedia', 'alpha', 'uscf'];
-        var currentTheme = 0;
+        var $status = $('#status');
+        var $history = $('#history');
 
-        function makeRandomMove() {
+        function onDragStart (source, piece, position, orientation) {
+            if (game.game_over()) return false;
+            // Human is White
+            if (piece.search(/^b/) !== -1) return false;
+        }
+
+        function onDrop (source, target) {
+            var move = game.move({ from: source, to: target, promotion: 'q' });
+            if (move === null) return 'snapback';
+
+            updateStatus();
+            // AI moves after 400ms
+            window.setTimeout(makeBestMove, 400);
+        }
+
+        function makeBestMove() {
             var moves = game.moves();
-            if (game.game_over()) {
-                clearInterval(autoInterval);
-                $('#autoPlayBtn').removeClass('active-auto').text('GAME OVER');
-                return;
-            }
-            var move = moves[Math.floor(Math.random() * moves.length)];
-            game.move(move);
+            if (moves.length === 0) return;
+
+            // Simple "Smart" AI: Prioritize captures
+            var captureMoves = moves.filter(m => m.includes('x'));
+            var chosenMove = captureMoves.length > 0 
+                ? captureMoves[Math.floor(Math.random() * captureMoves.length)]
+                : moves[Math.floor(Math.random() * moves.length)];
+
+            game.move(chosenMove);
             board.position(game.fen());
             updateStatus();
         }
 
         function updateStatus() {
-            var status = game.turn() === 'w' ? "White's Turn" : "Black's Turn";
-            if (game.in_checkmate()) status = "CHECKMATE!";
-            $('#status').text(status);
+            var statusText = "";
+            var moveColor = game.turn() === 'b' ? 'Black' : 'White';
+
+            // 1. CHECKMATE DETECTOR
+            if (game.in_checkmate()) {
+                statusText = "CHECKMATE! " + (game.turn() === 'w' ? 'AI Wins' : 'You Win');
+                $status.addClass('game-over');
+            } 
+            // 2. STALEMATE DETECTOR
+            else if (game.in_stalemate()) {
+                statusText = "GAME OVER: STALEMATE";
+                $status.addClass('game-over');
+            }
+            // 3. DRAW DETECTOR (Repetition / 50-move)
+            else if (game.in_draw()) {
+                statusText = "GAME OVER: DRAW";
+                $status.addClass('game-over');
+            }
+            // 4. CHECK DETECTOR
+            else {
+                statusText = game.turn() === 'w' ? "YOUR TURN" : "AI THINKING...";
+                if (game.in_check()) {
+                    statusText += " (CHECK!)";
+                }
+                $status.removeClass('game-over');
+            }
+
+            $status.html(statusText);
             
+            // Log Moves
             var history = game.history();
-            var html = history.map((m, i) => `<div>[${i+1}] ${m}</div>`).join('');
-            $('#history').html(html).scrollTop($('#history')[0].scrollHeight);
+            $history.html(history.map((m, i) => `<div>${i+1}. ${m}</div>`).join(''));
+            $history.scrollTop($history[0].scrollHeight);
         }
 
-        // --- BUTTONS ---
-        $('#autoPlayBtn').click(function() {
-            if (autoInterval) {
-                clearInterval(autoInterval);
-                autoInterval = null;
-                $(this).removeClass('active-auto').text('START AUTO-CHESS');
-            } else {
-                autoInterval = setInterval(makeRandomMove, 500);
-                $(this).addClass('active-auto').text('STOP AUTO-CHESS');
-            }
-        });
+        function undo() {
+            game.undo(); game.undo(); // Back to player's turn
+            board.position(game.fen());
+            updateStatus();
+        }
 
-        $('#resetBtn').click(() => { 
-            game.reset(); 
-            board.start(); 
-            clearInterval(autoInterval);
-            $('#autoPlayBtn').removeClass('active-auto').text('START AUTO-CHESS');
-            updateStatus(); 
-        });
+        function reset() {
+            game.reset();
+            board.start();
+            updateStatus();
+        }
 
-        $('#undoBtn').click(() => { game.undo(); board.position(game.fen()); updateStatus(); });
-
-        $('#themeBtn').click(() => {
-            // This cycles the look of the pieces if the library supports it
-            alert("Theme Switched! (Visual update applied)");
-        });
+        function onSnapEnd () { board.position(game.fen()); }
 
         board = Chessboard('board', {
             draggable: true,
             position: 'start',
-            onDrop: (s, t) => {
-                var move = game.move({ from: s, to: t, promotion: 'q' });
-                if (move === null) return 'snapback';
-                updateStatus();
-            }
+            onDragStart: onDragStart,
+            onDrop: onDrop,
+            onSnapEnd: onSnapEnd
         });
 
         updateStatus();
